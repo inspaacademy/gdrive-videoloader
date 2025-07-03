@@ -4,6 +4,7 @@ import argparse
 import sys
 from tqdm import tqdm
 import os
+import re
 
 def get_video_url(page_content: str, verbose: bool) -> tuple[str, str]:
     """Extracts the video playback URL and title from the page content."""
@@ -53,6 +54,14 @@ def download_file(url: str, cookies: dict, filename: str, chunk_size: int, verbo
     else:
         print(f"Error downloading {filename}, status code: {response.status_code}")
 
+def sanitize_filename(filename: str) -> str:
+    """Sanitizes the filename by removing invalid characters."""
+    # Remove invalid characters for Windows and Unix systems
+    filename = re.sub(r'[<>:"/\\|?*]', '', filename)
+    # Remove control characters
+    filename = "".join(char for char in filename if ord(char) >= 32)
+    return filename.strip()
+
 def main(video_id: str, output_file: str = None, chunk_size: int = 1024, verbose: bool = False) -> None:
     """Main function to process video ID and download the video file."""
     drive_url = f'https://drive.google.com/u/0/get_video_info?docid={video_id}&drive_originator_app=303'
@@ -67,6 +76,11 @@ def main(video_id: str, output_file: str = None, chunk_size: int = 1024, verbose
     video, title = get_video_url(page_content, verbose)
 
     filename = output_file if output_file else title
+    filename = sanitize_filename(filename)
+    
+    if verbose and filename != (output_file if output_file else title):
+        print(f"[INFO] Filename sanitized to: {filename}")
+
     if video:
         download_file(video, cookies, filename, chunk_size, verbose)
     else:
