@@ -162,4 +162,5 @@ cython_debug/
 #.idea/
 
 # Editor history files
-.history/
+.history/cookies.json
+.DS_Store
