@@ -4,6 +4,15 @@ import argparse
 import sys
 from tqdm import tqdm
 import os
+import re
+
+def extract_drive_id(input_str: str) -> str:
+    """Extracts the Google Drive file ID from a URL or returns the input if it's already an ID."""
+    pattern = r'/file/d/([a-zA-Z0-9_-]+)'
+    match = re.search(pattern, input_str)
+    if match:
+        return match.group(1)
+    return input_str
 
 def get_video_url(page_content: str, verbose: bool) -> tuple[str, str]:
     """Extracts the video playback URL and title from the page content."""
@@ -53,8 +62,13 @@ def download_file(url: str, cookies: dict, filename: str, chunk_size: int, verbo
     else:
         print(f"Error downloading {filename}, status code: {response.status_code}")
 
-def main(video_id: str, output_file: str = None, chunk_size: int = 1024, verbose: bool = False) -> None:
-    """Main function to process video ID and download the video file."""
+def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, verbose: bool = False) -> None:
+    """Main function to process video ID or URL and download the video file."""
+    video_id = extract_drive_id(video_id_or_url)
+    
+    if verbose:
+        print(f"[INFO] Extracted video ID: {video_id}")
+    
     drive_url = f'https://drive.google.com/u/0/get_video_info?docid={video_id}&drive_originator_app=303'
     
     if verbose:
@@ -74,7 +88,7 @@ def main(video_id: str, output_file: str = None, chunk_size: int = 1024, verbose
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to download videos from Google Drive.")
-    parser.add_argument("video_id", type=str, help="The video ID from Google Drive (e.g., 'abc-Qt12kjmS21kjDm2kjd').")
+    parser.add_argument("video_id", type=str, help="The video ID from Google Drive or a full Google Drive URL (e.g., 'abc-Qt12kjmS21kjDm2kjd' or 'https://drive.google.com/file/d/ID/view').")
     parser.add_argument("-o", "--output", type=str, help="Optional output file name for the downloaded video (default: video name in gdrive).")
     parser.add_argument("-c", "--chunk_size", type=int, default=1024, help="Optional chunk size (in bytes) for downloading the video. Default is 1024 bytes.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose mode.")

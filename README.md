@@ -30,17 +30,25 @@ pip install -r requirements.txt
 
 ### Basic Command
 
-To download a video by its Google Drive ID:
+To download a video, you can provide either the Google Drive file ID or a full Google Drive URL:
 
+**Using a file ID:**
 ```bash
 python gdrive_videoloader.py <video_id>
 ```
+
+**Using a full Google Drive URL:**
+```bash
+python gdrive_videoloader.py https://drive.google.com/file/d/<video_id>/view
+```
+
+The script will automatically extract the file ID from the URL if you provide a full link.
 
 ### Options
 
 | Parameter                | Description                                                       | Default Value         |
 |--------------------------|-------------------------------------------------------------------|-----------------------|
-| `<video_id>`             | The video ID from Google Drive (required).                       | N/A                   |
+| `<video_id>`             | The video ID from Google Drive or a full Google Drive URL (required). The script automatically extracts the ID from URLs like `https://drive.google.com/file/d/ID/view`. | N/A                   |
 | `-o`, `--output`         | Custom output file name for the downloaded video.                | Video name in GDrive  |
 | `-c`, `--chunk_size`     | Chunk size (in bytes) for downloading the video.                 | 1024 bytes            |
 | `-v`, `--verbose`        | Enable verbose mode for detailed logs.                           | Disabled              |
