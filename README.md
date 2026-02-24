@@ -1,11 +1,12 @@
 # GDrive VideoLoader
 
-**GDrive VideoLoader** is a Python-based tool to download videos from Google Drive effortlessly, **including those marked as _view-only_** (no download option). It supports resumable downloads, progress bars, and various customization options for video fetching and downloading.
+**GDrive VideoLoader** is a Python-based tool to download videos from Google Drive effortlessly, **including those marked as _view-only_** (no download option). It supports resumable downloads, progress bars, parallel downloading, and various customization options for video fetching and downloading.
 
 ## Features
 
 - Download videos even if marked as *view-only* (without a download button)
 - Supports resumable downloads (continue from where it stopped)
+- Supports parallel downloading of a single file (multithreading)
 - Displays a progress bar for ongoing downloads
 - Allows custom chunk sizes for downloading
 - Optionally specify a custom output file name
@@ -51,6 +52,7 @@ The script will automatically extract the file ID from the URL if you provide a 
 | `<video_id>`             | The video ID from Google Drive or a full Google Drive URL (required). The script automatically extracts the ID from URLs like `https://drive.google.com/file/d/ID/view`. | N/A                   |
 | `-o`, `--output`         | Custom output file name for the downloaded video.                | Video name in GDrive  |
 | `-c`, `--chunk_size`     | Chunk size (in bytes) for downloading the video.                 | 1024 bytes            |
+| `-t`, `--threads`        | Number of threads for parallel downloading, improves speed       | 4                     |
 | `-v`, `--verbose`        | Enable verbose mode for detailed logs.                           | Disabled              |
 | `--version`              | Display the script version.                                      | N/A                   |
 | `-h`, `--help`           | Display the help message.                                        | N/A                   |
@@ -67,13 +69,9 @@ The script will automatically extract the file ID from the URL if you provide a 
 - Safely handle interruptions (KeyboardInterrupt).
 - Display custom error messages based on request responses.
 
-### Performance
-- Implement parallel downloads to speed up the process.
-
 ### Organization
 - Modularize the project into separate files (`downloader.py`, `cli.py`, `utils.py`).
 - Add logging support using the `logging` module.
-- Validate output file names for compatibility with the operating system.
 
 ### Code Quality
 - Create automated tests for core functions.
