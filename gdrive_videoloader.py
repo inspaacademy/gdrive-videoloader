@@ -57,9 +57,9 @@ def download_part(url: str, cookies: dict, thread_lock, start: int, end: int, pa
             headers['Range'] = f'bytes={start + downloaded}-{end}'
 
             # Update Progress
-            pbar.update(downloaded)
             with thread_lock:
                 gpbar.update(downloaded)
+                pbar.update(downloaded)
             
             if verbose:
                 print(f"[INFO] Resuming part {part_filename} from byte {start + downloaded}")
@@ -71,15 +71,15 @@ def download_part(url: str, cookies: dict, thread_lock, start: int, end: int, pa
     s = requests.Session()
     response = s.get(url, stream=True, cookies=cookies, headers=headers)
     if response.status_code not in (200, 206):
-        raise (f"[ERROR] Failed to download part {part_filename}, status: {response.status_code}")
+        raise Exception(f"[ERROR] Failed to download part {part_filename}, status: {response.status_code}")
     
     file_mode = 'ab' if os.path.exists(part_filename) and os.path.getsize(part_filename) > 0 else 'wb'
     with open(part_filename, file_mode) as f:
         for chunk in response.iter_content(chunk_size=chunk_size):
             f.write(chunk)
-            pbar.update(len(chunk))
             with thread_lock:
                 gpbar.update(len(chunk))
+                pbar.update(len(chunk))
             downloaded += len(chunk)
 
             # Check Part fully downloaded
@@ -104,7 +104,8 @@ def merge_parts(part_files: list[str], output_filename: str, verbose: bool) -> N
 
     with open(output_filename, 'wb') as outfile:
         for part_file in part_files:
-            print("Merging " + part_file)
+            if verbose:
+                print("Merging " + part_file)
             with open(part_file, 'rb') as pf:
                 shutil.copyfileobj(pf, outfile)
     
