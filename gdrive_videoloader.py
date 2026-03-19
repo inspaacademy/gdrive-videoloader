@@ -20,7 +20,7 @@ def load_cookies_from_file(cookies_file: str):
     if not os.path.exists(cookies_file):
         raise FileNotFoundError(f"Cookies file not found: {cookies_file}")
 
-    with open(cookies_file, 'r') as f:
+    with open(cookies_file, 'r', encoding='utf-8') as f:
         content = f.read()
 
     stripped = content.lstrip()
