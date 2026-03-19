@@ -8,8 +8,84 @@ import re
 import threading
 import math
 import shutil
+import json
+from http.cookiejar import MozillaCookieJar
+from requests.cookies import RequestsCookieJar
+import tempfile
 
 thread_errors = []
+
+def load_cookies_from_file(cookies_file: str):
+    """Load cookies from a Netscape cookies.txt or JSON export file."""
+    if not os.path.exists(cookies_file):
+        raise FileNotFoundError(f"Cookies file not found: {cookies_file}")
+
+    with open(cookies_file, 'r', encoding='utf-8') as f:
+        content = f.read()
+
+    stripped = content.lstrip()
+    if stripped.startswith('[') or stripped.startswith('{'):
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"Invalid JSON cookies file: {cookies_file}") from exc
+
+        if isinstance(data, dict) and "cookies" in data and isinstance(data["cookies"], list):
+            cookies_list = data["cookies"]
+        elif isinstance(data, list):
+            cookies_list = data
+        else:
+            raise ValueError(f"Unsupported JSON cookies format: {cookies_file}")
+
+        jar = RequestsCookieJar()
+        for cookie in cookies_list:
+            if not isinstance(cookie, dict):
+                continue
+            name = cookie.get("name")
+            value = cookie.get("value")
+            domain = cookie.get("domain") or ""
+            path = cookie.get("path") or "/"
+            expires = cookie.get("expirationDate") or cookie.get("expires")
+            if not name or value is None:
+                continue
+            jar.set(name, value, domain=domain, path=path, expires=expires)
+        return jar
+
+    generated_cookie_file = None
+    if not stripped.startswith('# Netscape HTTP Cookie File') and not stripped.startswith('# HTTP Cookie File'):
+        temp_file = tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False)
+        temp_file.write('# Netscape HTTP Cookie File\n')
+        temp_file.write('# https://curl.haxx.se/rfc/cookie_spec.html\n')
+        temp_file.write('# This is a generated file! Do not edit.\n\n')
+        temp_file.write(content)
+        temp_file.close()
+        generated_cookie_file = temp_file.name
+        cookies_file = generated_cookie_file
+
+    cookie_jar = MozillaCookieJar(cookies_file)
+    try:
+        cookie_jar.load(ignore_discard=True, ignore_expires=True)
+    finally:
+        if generated_cookie_file and os.path.exists(generated_cookie_file):
+            os.remove(generated_cookie_file)
+
+    return cookie_jar
+
+def get_cookies_session(cookies_file: str = None) -> requests.Session:
+    """Create a requests session with optional cookies loaded from file."""
+    session = requests.Session()
+
+    if cookies_file:
+        cookie_jar = load_cookies_from_file(cookies_file)
+        session.cookies = cookie_jar
+
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.5',
+    })
+
+    return session
 
 def extract_drive_id(input_str: str) -> str:
     """Extracts the Google Drive file ID from a URL or returns the input if it's already an ID."""
@@ -216,21 +292,25 @@ def download_single_threaded(url: str, cookies: dict, filename: str, chunk_size:
     else:
         print(f"Error downloading {filename}, status code: {response.status_code}")
 
-def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, num_threads: int = 4, verbose: bool = False) -> None:
+def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, num_threads: int = 4, verbose: bool = False, cookies_file: str = None) -> None:
     """Main function to process video ID or URL and download the video file."""
     video_id = extract_drive_id(video_id_or_url)
     
     if verbose:
         print(f"[INFO] Extracted video ID: {video_id}")
+        if cookies_file:
+            print(f"[INFO] Using cookies from: {cookies_file}")
+
+    session = get_cookies_session(cookies_file)
     
     drive_url = f'https://drive.google.com/u/0/get_video_info?docid={video_id}&drive_originator_app=303'
     
     if verbose:
         print(f"[INFO] Accessing {drive_url}")
 
-    response = requests.get(drive_url)
+    response = session.get(drive_url)
     page_content = response.text
-    cookies = response.cookies.get_dict()
+    cookies = session.cookies.get_dict()
 
     video, title = get_video_url(page_content, verbose)
 
@@ -245,6 +325,8 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
         download_file(video, cookies, valid_filename, chunk_size, num_threads, verbose)
     else:
         print("Unable to retrieve the video URL. Ensure the video ID is correct and accessible.")
+        if not cookies_file:
+            print("Tip: For private files, use --cookies to provide a cookies.txt file with your Google login session.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to download videos from Google Drive.")
@@ -253,7 +335,8 @@ if __name__ == "__main__":
     parser.add_argument("-c", "--chunk_size", type=int, default=1024, help="Optional chunk size (in bytes) for downloading the video. Default is 1024 bytes.")
     parser.add_argument("-t", "--threads", type=int, default=4, choices=range(1, 17), help="Number of parallel download threads (1-16). Default is 4.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose mode.")
+    parser.add_argument("--cookies", type=str, help="Path to a Netscape cookies.txt file or JSON cookie export for private Google Drive files.")
     parser.add_argument("--version", action="version", version="%(prog)s 1.1.0")
 
     args = parser.parse_args()
-    main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose)
+    main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies)
