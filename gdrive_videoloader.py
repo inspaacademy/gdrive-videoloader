@@ -124,25 +124,21 @@ def get_video_url(page_content: str, verbose: bool) -> tuple[str, str]:
 
     return video, title
 
-def get_file_size(url: str, cookies: dict) -> int:
+def get_file_size(url: str, session: requests.Session) -> int:
     """Gets the total file size via a HEAD request."""
-    response = requests.head(
+    response = session.head(
         url,
-        cookies=cookies,
         allow_redirects=True,
         headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'Referer': 'https://drive.google.com/',
         }
     )
-    size = int(response.headers.get('content-length', 0))
-    return size
+    return int(response.headers.get('content-length', 0))
 
-def download_part(url: str, cookies: dict, thread_lock, start: int, end: int, part_num: int, part_filename: str, chunk_size: int, pbar: tqdm, gpbar: tqdm, verbose: bool) -> None:
+def download_part(url: str, session: requests.Session, thread_lock, start: int, end: int, part_num: int, part_filename: str, chunk_size: int, pbar: tqdm, gpbar: tqdm, verbose: bool) -> None:
     """Downloads a specific byte range of the file and writes it to a part file."""
     headers = {
         'Range': f'bytes={start}-{end}',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://drive.google.com/',
     }
 
@@ -165,8 +161,7 @@ def download_part(url: str, cookies: dict, thread_lock, start: int, end: int, pa
     if downloaded >= (end - start + 1):
         return
         
-    s = requests.Session()
-    response = s.get(url, stream=True, cookies=cookies, headers=headers)
+    response = session.get(url, stream=True, headers=headers)
     if response.status_code not in (200, 206):
         raise Exception(f"[ERROR] Failed to download part {part_filename}, status: {response.status_code}")
     
@@ -213,16 +208,18 @@ def merge_parts(part_files: list[str], output_filename: str, verbose: bool) -> N
     if verbose:
         print(f"[INFO] Merge complete. Cleaned up part files.")
 
-def download_file(url: str, cookies: dict, filename: str, chunk_size: int, num_threads: int, verbose: bool) -> None:
+def download_file(url: str, session: requests.Session, filename: str, chunk_size: int, num_threads: int, verbose: bool) -> None:
     """Downloads the file using multiple threads, each handling a byte-range segment."""
 
-    total_size = get_file_size(url, cookies)
+    num_threads = max(1, num_threads)
+
+    total_size = get_file_size(url, session)
     if num_threads == 1:
-        download_single_threaded(url, cookies, filename, chunk_size, verbose)
+        download_single_threaded(url, session, filename, chunk_size, verbose)
         return
     if total_size == 0:
         print("[WARN] Could not determine file size. Falling back to single-threaded download.")
-        download_single_threaded(url, cookies, filename, chunk_size, verbose)
+        download_single_threaded(url, session, filename, chunk_size, verbose)
         return
 
     if verbose:
@@ -260,7 +257,7 @@ def download_file(url: str, cookies: dict, filename: str, chunk_size: int, num_t
 
         t = threading.Thread(
             target=download_part_wrapper,
-            args=(url, cookies, thread_lock, start, end, i, part_filename, chunk_size, pbars[i], gpBar, verbose),
+            args=(url, session, thread_lock, start, end, i, part_filename, chunk_size, pbars[i], gpBar, verbose),
             daemon=True
         )
         threads.append(t)
@@ -287,10 +284,9 @@ def download_file(url: str, cookies: dict, filename: str, chunk_size: int, num_t
     merge_parts(part_files, filename, verbose)
     print(f"\n{filename} downloaded successfully.")
 
-def download_single_threaded(url: str, cookies: dict, filename: str, chunk_size: int, verbose: bool) -> None:
+def download_single_threaded(url: str, session: requests.Session, filename: str, chunk_size: int, verbose: bool) -> None:
     """Fallback single-threaded download (original behavior)."""
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Referer': 'https://drive.google.com/',
     }
     file_mode = 'wb'
@@ -304,7 +300,7 @@ def download_single_threaded(url: str, cookies: dict, filename: str, chunk_size:
     if verbose:
         print(f"[INFO] Starting single-threaded download from {url}")
 
-    response = requests.get(url, stream=True, cookies=cookies, headers=headers)
+    response = session.get(url, stream=True, headers=headers)
     if response.status_code in (200, 206):  # 200 for new downloads, 206 for partial content
         total_size = int(response.headers.get('content-length', 0)) + downloaded_size
         with open(filename, file_mode) as file:
@@ -335,7 +331,6 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
 
     response = session.get(drive_url, allow_redirects=True)
     page_content = response.text
-    cookies = requests.utils.dict_from_cookiejar(session.cookies)
 
     if verbose:
         print(f"[INFO] get_video_info status: {response.status_code}")
@@ -363,7 +358,7 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
     # Remove trailing spaces or dots (Windows restriction)
     valid_filename = re.sub(r'[. ]+$', '', valid_filename) or f"{video_id}.mp4"
 
-    download_file(video, cookies, valid_filename, chunk_size, num_threads, verbose)
+    download_file(video, session, valid_filename, chunk_size, num_threads, verbose)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to download videos from Google Drive.")
@@ -376,4 +371,8 @@ if __name__ == "__main__":
     parser.add_argument("--version", action="version", version="%(prog)s 1.2.0")
 
     args = parser.parse_args()
-    main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies)
+    try:
+        main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[ERROR] Failed to load cookies: {e}", file=sys.stderr)
+        sys.exit(1)
