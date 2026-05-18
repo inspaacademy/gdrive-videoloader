@@ -10,7 +10,7 @@ import math
 import shutil
 import json
 from http.cookiejar import MozillaCookieJar
-from requests.cookies import RequestsCookieJar, cookiejar_from_dict
+from requests.cookies import RequestsCookieJar
 import tempfile
 
 thread_errors = []
