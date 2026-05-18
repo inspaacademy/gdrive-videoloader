@@ -15,7 +15,7 @@ import tempfile
 
 thread_errors = []
 
-def load_cookies_from_file(cookies_file: str):
+def load_cookies_from_file(cookies_file: str) -> RequestsCookieJar:
     """Load cookies from a Netscape cookies.txt or JSON export file."""
     if not os.path.exists(cookies_file):
         raise FileNotFoundError(f"Cookies file not found: {cookies_file}")
