@@ -211,6 +211,7 @@ def merge_parts(part_files: list[str], output_filename: str, verbose: bool) -> N
 def download_file(url: str, session: requests.Session, filename: str, chunk_size: int, num_threads: int, verbose: bool) -> None:
     """Downloads the file using multiple threads, each handling a byte-range segment."""
 
+    thread_errors.clear()
     num_threads = max(1, num_threads)
 
     total_size = get_file_size(url, session)
@@ -255,9 +256,13 @@ def download_file(url: str, session: requests.Session, filename: str, chunk_size
         part_filename = f"{filename}.part{i}"
         part_files.append(part_filename)
 
+        worker_session = requests.Session()
+        worker_session.cookies.update(session.cookies)
+        worker_session.headers.update(session.headers)
+
         t = threading.Thread(
             target=download_part_wrapper,
-            args=(url, session, thread_lock, start, end, i, part_filename, chunk_size, pbars[i], gpBar, verbose),
+            args=(url, worker_session, thread_lock, start, end, i, part_filename, chunk_size, pbars[i], gpBar, verbose),
             daemon=True
         )
         threads.append(t)
@@ -322,7 +327,11 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
         if cookies_file:
             print(f"[INFO] Using cookies from: {cookies_file}")
 
-    session = get_cookies_session(cookies_file)
+    try:
+        session = get_cookies_session(cookies_file)
+    except (FileNotFoundError, ValueError) as e:
+        print(f"[ERROR] Failed to load cookies: {e}", file=sys.stderr)
+        sys.exit(1)
     
     drive_url = f'https://drive.google.com/u/0/get_video_info?docid={video_id}&drive_originator_app=303'
     
@@ -371,8 +380,4 @@ if __name__ == "__main__":
     parser.add_argument("--version", action="version", version="%(prog)s 1.2.0")
 
     args = parser.parse_args()
-    try:
-        main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"[ERROR] Failed to load cookies: {e}", file=sys.stderr)
-        sys.exit(1)
+    main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies)
