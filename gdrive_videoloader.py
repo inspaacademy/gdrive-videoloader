@@ -161,7 +161,7 @@ def download_part(url: str, session: requests.Session, thread_lock, start: int, 
     if downloaded >= (end - start + 1):
         return
         
-    response = session.get(url, stream=True, headers=headers)
+    response = session.get(url, stream=True, headers=headers, timeout=30)
     if response.status_code not in (200, 206):
         raise Exception(f"[ERROR] Failed to download part {part_filename}, status: {response.status_code}")
     
@@ -305,7 +305,7 @@ def download_single_threaded(url: str, session: requests.Session, filename: str,
     if verbose:
         print(f"[INFO] Starting single-threaded download from {url}")
 
-    response = session.get(url, stream=True, headers=headers)
+    response = session.get(url, stream=True, headers=headers, timeout=30)
     if response.status_code in (200, 206):  # 200 for new downloads, 206 for partial content
         total_size = int(response.headers.get('content-length', 0)) + downloaded_size
         with open(filename, file_mode) as file:
@@ -338,7 +338,7 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
     if verbose:
         print(f"[INFO] Accessing {drive_url}")
 
-    response = session.get(drive_url, allow_redirects=True)
+    response = session.get(drive_url, allow_redirects=True, timeout=30)
     page_content = response.text
 
     if verbose:
