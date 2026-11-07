@@ -318,7 +318,7 @@ def download_single_threaded(url: str, session: requests.Session, filename: str,
     else:
         print(f"Error downloading {filename}, status code: {response.status_code}")
 
-def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, num_threads: int = 4, verbose: bool = False, cookies_file: str = None) -> None:
+def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, num_threads: int = 4, verbose: bool = False, cookies_file: str = None, output_dir: str = None) -> None:
     """Main function to process video ID or URL and download the video file."""
     video_id = extract_drive_id(video_id_or_url)
     
@@ -367,17 +367,30 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
     # Remove trailing spaces or dots (Windows restriction)
     valid_filename = re.sub(r'[. ]+$', '', valid_filename) or f"{video_id}.mp4"
 
+    if output_dir:
+        output_dir = os.path.expanduser(output_dir)
+        try:
+            os.makedirs(output_dir, exist_ok=True)
+        except OSError as e:
+            print(f"[ERROR] Could not create output directory '{output_dir}': {e}", file=sys.stderr)
+            sys.exit(1)
+        valid_filename = os.path.join(output_dir, valid_filename)
+
+    if verbose:
+        print(f"[INFO] Saving to {os.path.abspath(valid_filename)}")
+
     download_file(video, session, valid_filename, chunk_size, num_threads, verbose)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to download videos from Google Drive.")
     parser.add_argument("video_id", type=str, help="The video ID from Google Drive or a full Google Drive URL (e.g., 'abc-Qt12kjmS21kjDm2kjd' or 'https://drive.google.com/file/d/ID/view').")
     parser.add_argument("-o", "--output", type=str, help="Optional output file name for the downloaded video (default: video name in gdrive).")
+    parser.add_argument("-d", "--output-dir", type=str, help="Optional directory to save the video in (created if it does not exist). Default is the current directory.")
     parser.add_argument("-c", "--chunk_size", type=int, default=1024, help="Optional chunk size (in bytes) for downloading the video. Default is 1024 bytes.")
     parser.add_argument("-t", "--threads", type=int, default=4, choices=range(1, 17), help="Number of parallel download threads (1-16). Default is 4.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose mode.")
     parser.add_argument("--cookies", type=str, help="Path to a Netscape cookies.txt file or JSON cookie export for private Google Drive files.")
-    parser.add_argument("--version", action="version", version="%(prog)s 1.2.0")
+    parser.add_argument("--version", action="version", version="%(prog)s 1.3.0")
 
     args = parser.parse_args()
-    main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies)
+    main(args.video_id, args.output, args.chunk_size, args.threads, args.verbose, args.cookies, args.output_dir)
