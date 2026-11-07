@@ -15,6 +15,8 @@ import tempfile
 
 thread_errors = []
 
+REQUEST_TIMEOUT = 30
+
 def load_cookies_from_file(cookies_file: str) -> RequestsCookieJar:
     """Load cookies from a Netscape cookies.txt or JSON export file."""
     if not os.path.exists(cookies_file):
@@ -131,7 +133,8 @@ def get_file_size(url: str, session: requests.Session) -> int:
         allow_redirects=True,
         headers={
             'Referer': 'https://drive.google.com/',
-        }
+        },
+        timeout=REQUEST_TIMEOUT,
     )
     return int(response.headers.get('content-length', 0))
 
@@ -161,7 +164,7 @@ def download_part(url: str, session: requests.Session, thread_lock, start: int, 
     if downloaded >= (end - start + 1):
         return
         
-    response = session.get(url, stream=True, headers=headers, timeout=30)
+    response = session.get(url, stream=True, headers=headers, timeout=REQUEST_TIMEOUT)
     if response.status_code not in (200, 206):
         raise Exception(f"[ERROR] Failed to download part {part_filename}, status: {response.status_code}")
     
@@ -305,7 +308,11 @@ def download_single_threaded(url: str, session: requests.Session, filename: str,
     if verbose:
         print(f"[INFO] Starting single-threaded download from {url}")
 
-    response = session.get(url, stream=True, headers=headers, timeout=30)
+    try:
+        response = session.get(url, stream=True, headers=headers, timeout=REQUEST_TIMEOUT)
+    except requests.exceptions.RequestException:
+        print("Download stalled, run again to resume")
+        return
     if response.status_code in (200, 206):  # 200 for new downloads, 206 for partial content
         total_size = int(response.headers.get('content-length', 0)) + downloaded_size
         with open(filename, file_mode) as file:
@@ -338,7 +345,11 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
     if verbose:
         print(f"[INFO] Accessing {drive_url}")
 
-    response = session.get(drive_url, allow_redirects=True, timeout=30)
+    try:
+        response = session.get(drive_url, allow_redirects=True, timeout=REQUEST_TIMEOUT)
+    except requests.exceptions.RequestException as e:
+        print(f"[ERROR] Failed to fetch video info: {e}", file=sys.stderr)
+        sys.exit(1)
     page_content = response.text
 
     if verbose:
