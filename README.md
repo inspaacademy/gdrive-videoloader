@@ -57,7 +57,7 @@ python gdrive_videoloader.py <video_id> -d ~/Videos/drive
 | `<video_id>`             | The video ID from Google Drive or a full Google Drive URL (required). The script automatically extracts the ID from URLs like `https://drive.google.com/file/d/ID/view`. | N/A                   |
 | `-o`, `--output`         | Custom output file name for the downloaded video.                | Video name in GDrive  |
 | `-d`, `--output-dir`     | Directory to save the video in. Created if it does not exist.    | Current directory     |
-| `-c`, `--chunk_size`     | Chunk size (in bytes) for downloading the video.                 | 1024 bytes            |
+| `-c`, `--chunk_size`     | Chunk size (in bytes) for downloading the video.                 | 65536 bytes            |
 | `-t`, `--threads`        | Number of threads for parallel downloading, improves speed       | 4                     |
 | `-v`, `--verbose`        | Enable verbose mode for detailed logs.                           | Disabled              |
 | `--version`              | Display the script version.                                      | N/A                   |

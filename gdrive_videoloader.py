@@ -1,5 +1,7 @@
 from urllib.parse import unquote
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import argparse
 import sys
 from tqdm import tqdm
@@ -12,10 +14,20 @@ import json
 from http.cookiejar import MozillaCookieJar
 from requests.cookies import RequestsCookieJar
 import tempfile
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 
 thread_errors = []
+
+
+def create_retry_adapter() -> HTTPAdapter:
+    """Create a fresh HTTPAdapter with retry logic for transient connection drops."""
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"],
+        raise_on_status=False,
+    )
+    return HTTPAdapter(max_retries=retry_strategy)
 
 def load_cookies_from_file(cookies_file: str) -> RequestsCookieJar:
     """Load cookies from a Netscape cookies.txt or JSON export file."""
@@ -83,31 +95,22 @@ def load_cookies_from_file(cookies_file: str) -> RequestsCookieJar:
     return requests_jar
 
 def get_cookies_session(cookies_file: str = None) -> requests.Session:
-    """Create a requests session with optional cookies loaded from file and retry logic."""
+    """Create a requests session with optional cookies loaded from file."""
     session = requests.Session()
 
     if cookies_file:
         cookie_jar = load_cookies_from_file(cookies_file)
         session.cookies = cookie_jar
 
-    # Configure automatic retries for dropped connections (RemoteDisconnected, etc.)
-    retry_strategy = Retry(
-        total=5,
-        backoff_factor=1,
-        status_forcelist=[429, 500, 502, 503, 504],
-        allowed_methods=["HEAD", "GET", "OPTIONS"],
-        raise_on_status=False
-    )
-    adapter = HTTPAdapter(max_retries=retry_strategy)
+    adapter = create_retry_adapter()
     session.mount("https://", adapter)
     session.mount("http://", adapter)
 
     session.headers.update({
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.5',
         'Referer': 'https://drive.google.com/',
-        'Connection': 'keep-alive',
     })
 
     return session
@@ -176,7 +179,7 @@ def download_part(url: str, session: requests.Session, thread_lock, start: int, 
     # Check Part already fully downloaded
     if downloaded >= (end - start + 1):
         return
-        
+
     response = session.get(url, stream=True, headers=headers)
     if response.status_code not in (200, 206):
         raise Exception(f"[ERROR] Failed to download part {part_filename}, status: {response.status_code}")
@@ -217,7 +220,7 @@ def merge_parts(part_files: list[str], output_filename: str, verbose: bool) -> N
                 print("Merging " + part_file)
             with open(part_file, 'rb') as pf:
                 shutil.copyfileobj(pf, outfile)
-    
+
     for part_file in part_files: # Cleanup
         os.remove(part_file)
 
@@ -273,13 +276,10 @@ def download_file(url: str, session: requests.Session, filename: str, chunk_size
         part_files.append(part_filename)
 
         worker_session = requests.Session()
-        # Preserve full cookie metadata (domain, path) instead of dict-style .update()
-        for cookie in session.cookies:
-            worker_session.cookies.set_cookie(cookie)
+        worker_session.cookies.update(session.cookies)
         worker_session.headers.update(session.headers)
-
-        # Mount the same retry adapter from the main session
-        worker_session.mount("https://", session.get_adapter("https://"))
+        worker_session.mount("https://", create_retry_adapter())
+        worker_session.mount("http://", create_retry_adapter())
 
         t = threading.Thread(
             target=download_part_wrapper,
@@ -288,7 +288,6 @@ def download_file(url: str, session: requests.Session, filename: str, chunk_size
         )
         threads.append(t)
         t.start()
-
     for t in threads:
         t.join()
 
@@ -339,7 +338,7 @@ def download_single_threaded(url: str, session: requests.Session, filename: str,
     else:
         print(f"Error downloading {filename}, status code: {response.status_code}")
 
-def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, num_threads: int = 4, verbose: bool = False, cookies_file: str = None, output_dir: str = None) -> None:
+def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 65536, num_threads: int = 4, verbose: bool = False, cookies_file: str = None, output_dir: str = None) -> None:
     """Main function to process video ID or URL and download the video file."""
     video_id = extract_drive_id(video_id_or_url)
 
@@ -355,10 +354,10 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
         sys.exit(1)
 
     endpoints = [
-            f'https://drive.google.com/get_video_info?docid={video_id}&drive_originator_app=303',
-            f'https://drive.google.com/u/0/get_video_info?docid={video_id}&drive_originator_app=303',
-            f'https://docs.google.com/get_video_info?docid={video_id}',
-        ]
+        f'https://drive.google.com/u/0/get_video_info?docid={video_id}&drive_originator_app=303',
+        f'https://drive.google.com/get_video_info?docid={video_id}&drive_originator_app=303',
+        f'https://docs.google.com/get_video_info?docid={video_id}&drive_originator_app=303',
+    ]
 
     page_content = ""
     for drive_url in endpoints:
@@ -366,62 +365,24 @@ def main(video_id_or_url: str, output_file: str = None, chunk_size: int = 1024, 
             print(f"[INFO] Accessing {drive_url}")
         try:
             response = session.get(drive_url, allow_redirects=True, timeout=15)
+            page_content = response.text
             if verbose:
                 print(f"[INFO] get_video_info status: {response.status_code}")
                 print(f"[INFO] final URL: {response.url}")
-                print(f"[INFO] response length: {len(response.text)} chars")
+                print(f"[INFO] response length: {len(page_content)} chars")
 
-            if response.status_code == 200 and ("videoplayback" in response.text or "fmt_stream_map" in response.text):
-                page_content = response.text
+            if response.status_code == 200 and "videoplayback" in page_content:
                 break
-            elif response.status_code == 200 and not page_content:
-                page_content = response.text
         except requests.exceptions.RequestException as e:
             if verbose:
                 print(f"[WARN] Request to {drive_url} failed: {e}")
             continue
-
-    video, title = get_video_url(page_content, verbose)
-
-    if not video:
-        print("Unable to retrieve the video URL.")
-        print("Possible causes: the file requires login, the exported cookies are missing/expired, or Google Drive changed the response format.")
-        if not cookies_file:
-            print("Tip: For private files, use --cookies to provide a cookies.txt/JSON export from a browser session that can open the file.")
-        elif verbose:
-            debug_file = f"gdrive_debug_{video_id}.txt"
-            with open(debug_file, "w", encoding="utf-8") as f:
-                f.write(page_content[:20000])
-            print(f"[INFO] Saved first 20000 chars of response to {debug_file}")
-        return
-
-    filename = output_file or title or f"{video_id}.mp4"
-
-    # Remove invalid characters (Windows + Linux)
-    valid_filename = re.sub(r'[<>:"/\\|?*\x00-\x1F]', '', filename)
-    # Remove trailing spaces or dots (Windows restriction)
-    valid_filename = re.sub(r'[. ]+$', '', valid_filename) or f"{video_id}.mp4"
-
-    if output_dir:
-        output_dir = os.path.expanduser(output_dir)
-        try:
-            os.makedirs(output_dir, exist_ok=True)
-        except OSError as e:
-            print(f"[ERROR] Could not create output directory '{output_dir}': {e}", file=sys.stderr)
-            sys.exit(1)
-        valid_filename = os.path.join(output_dir, valid_filename)
-
-    if verbose:
-        print(f"[INFO] Saving to {os.path.abspath(valid_filename)}")
-
-    download_file(video, session, valid_filename, chunk_size, num_threads, verbose)
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Script to download videos from Google Drive.")
     parser.add_argument("video_id", type=str, help="The video ID from Google Drive or a full Google Drive URL (e.g., 'abc-Qt12kjmS21kjDm2kjd' or 'https://drive.google.com/file/d/ID/view').")
     parser.add_argument("-o", "--output", type=str, help="Optional output file name for the downloaded video (default: video name in gdrive).")
     parser.add_argument("-d", "--output-dir", type=str, help="Optional directory to save the video in (created if it does not exist). Default is the current directory.")
-    parser.add_argument("-c", "--chunk_size", type=int, default=65536, help="Optional chunk size (in bytes) for downloading the video. Default is 65536 bytes (64KB).")
+    parser.add_argument("-c", "--chunk_size", type=int, default=655 36, help="Optional chunk size (in bytes) for downloading the video. Default is 65536 bytes (64KB).")
     parser.add_argument("-t", "--threads", type=int, default=4, choices=range(1, 17), help="Number of parallel download threads (1-16). Default is 4.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose mode.")
     parser.add_argument("--cookies", type=str, help="Path to a Netscape cookies.txt file or JSON cookie export for private Google Drive files.")
